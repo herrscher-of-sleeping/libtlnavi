@@ -1,0 +1,5 @@
+-cp src
+-lib munit
+-cp tests
+-x tests.Main
+-D no-deprecation-warnings
