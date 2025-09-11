@@ -4,7 +4,7 @@ import massive.munit.Assert;
 import massive.munit.TestRunner;
 import massive.munit.client.RichPrintClient;
 
-class Main {
+class TestsMain {
 	static function main() {
 		var client = new RichPrintClient();
 		var runner = new TestRunner(client);
@@ -17,6 +17,7 @@ class TestSuite extends massive.munit.TestSuite {
 		super();
 		add(TestCase);
 		add(GraphTests);
+		add(QuadTreeTests);
 	}
 }
 

@@ -3,3 +3,8 @@
 -lib munit
 -lib hxnodejs
 -js bin/js/main.js
+
+--next
+-cp src
+-main Main
+-neko bin/neko/main.n

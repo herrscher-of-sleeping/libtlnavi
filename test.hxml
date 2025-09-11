@@ -1,5 +1,5 @@
 -cp src
 -lib munit
 -cp tests
--x tests.Main
+-x tests.TestsMain
 -D no-deprecation-warnings

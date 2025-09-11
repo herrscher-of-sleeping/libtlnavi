@@ -1,4 +1,4 @@
-typedef Point = Array<Int>;
+typedef GeojsonPoint = Array<Int>;
 
 typedef TranslocatorPairFeature = {
     var type:String;
@@ -10,7 +10,7 @@ typedef TranslocatorPairFeature = {
     };
     var geometry:{
         var type:String;
-        var coordinates:Array<Point>;
+        var coordinates:Array<GeojsonPoint>;
     };
 };
 
@@ -29,7 +29,7 @@ typedef LandmarkFeature = {
     };
     var geometry:{
         var type:String;
-        var coordinates:Point;
+        var coordinates:GeojsonPoint;
     };
 };
 

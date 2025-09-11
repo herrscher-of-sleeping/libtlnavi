@@ -8,13 +8,10 @@ function $extend(from, fields) {
 	return proto;
 }
 var Graph = function(vertices) {
-	if(vertices == null) {
-		vertices = 0;
-	}
 	this.weights = [];
 	this.edges = [];
 	var _g = 0;
-	var _g1 = vertices;
+	var _g1 = vertices + 1;
 	while(_g < _g1) {
 		var i = _g++;
 		this.edges.push([]);
@@ -22,18 +19,28 @@ var Graph = function(vertices) {
 	}
 };
 Graph.__name__ = true;
-Graph.fromGeodata = function(geodata) {
-};
 Graph.prototype = {
-	addEdge: function(i,j,weight) {
+	addEdge: function(i,j,weight,scan) {
+		if(scan == null) {
+			scan = false;
+		}
+		if(scan) {
+			var posI = this.edges[i].indexOf(j);
+			var posJ = this.edges[j].indexOf(i);
+			if(posI != -1) {
+				this.weights[i][posI] = weight;
+				this.weights[j][posJ] = weight;
+				return;
+			}
+		}
+		haxe_Log.trace("" + this.edges.length + ", " + this.edges[i].length + ", " + i + ", " + j,{ fileName : "src/Graph.hx", lineNumber : 24, className : "Graph", methodName : "addEdge"});
 		this.edges[i].push(j);
 		this.weights[i].push(weight);
 		this.edges[j].push(i);
 		this.weights[j].push(weight);
-		console.log("src/Graph.hx:23:","Add edge for " + i + ", " + j + ", weight " + weight);
 	}
 	,clone: function() {
-		var g = new Graph();
+		var g = new Graph(this.edges.length);
 		var _this = this.edges;
 		var result = new Array(_this.length);
 		var _g = 0;
@@ -67,23 +74,271 @@ Main.main = function() {
 		process.stdout.write("\n");
 		process.exit(1);
 	}
-	var tlGeojson = JSON.parse(js_node_Fs.readFileSync(tlGeojsonPath,{ encoding : "utf8"}));
-	var g = new Graph(100);
-	var _g = 0;
-	var _g1 = tlGeojson.features;
-	while(_g < _g1.length) {
-		var feature = _g1[_g];
-		++_g;
-		console.log("src/Main.hx:18:",feature);
-	}
+	var fileContents = js_node_Fs.readFileSync(tlGeojsonPath,{ encoding : "utf8"});
+	var tlGeojson = JSON.parse(fileContents);
+	var g = Main_buildGraph(tlGeojson,{ translocatorWeight : 100, from : new GamePoint(0,0), to : new GamePoint(100000,0), initialTranslocatorQuerySize : 1000});
 	g.addEdge(1,2,123);
 	var g2 = g.clone();
 };
+function Main_makePoint(point) {
+	return new GamePoint(point[0],-point[1]);
+}
+function Main_buildGraph(tlGeojson,config) {
+	var graph = new Graph(tlGeojson.features.length * 2 + 2);
+	var tlWeight = config.translocatorWeight;
+	var quadTree = new QuadTree(new AABB(new GamePoint(0,0),1050000),10);
+	var flatPointListById = [];
+	var _g = 0;
+	var _g1 = tlGeojson.features.length;
+	while(_g < _g1) {
+		var i = _g++;
+		var tlId0 = i * 2;
+		var tlId1 = tlId0 + 1;
+		var pt0 = Main_makePoint(tlGeojson.features[i].geometry.coordinates[0]);
+		var pt1 = Main_makePoint(tlGeojson.features[i].geometry.coordinates[1]);
+		graph.addEdge(tlId0,tlId1,tlWeight);
+		graph.addEdge(tlId1,tlId0,tlWeight);
+		flatPointListById.push(pt0);
+		flatPointListById.push(pt1);
+		quadTree.insert(pt0,tlId0);
+		quadTree.insert(pt1,tlId1);
+	}
+	var size = config.initialTranslocatorQuerySize;
+	var halfsize = Math.floor(size / 2);
+	var _g = 0;
+	var _g1 = flatPointListById.length;
+	while(_g < _g1) {
+		var id = _g++;
+		var queryResults = [];
+		var pt = flatPointListById[id];
+		quadTree.queryRange(new AABB(new GamePoint(pt.x - halfsize,pt.y - halfsize),size),queryResults);
+		if(queryResults.length < 10) {
+			queryResults = [];
+			halfsize = size * 4;
+			quadTree.queryRange(new AABB(new GamePoint(pt.x - halfsize,pt.y - halfsize),size),queryResults);
+		}
+		var _g2 = 0;
+		while(_g2 < queryResults.length) {
+			var result = queryResults[_g2];
+			++_g2;
+			if(result.id != id) {
+				graph.addEdge(id,result.id,pt.dist(result.point),true);
+			}
+		}
+	}
+	var startPointId = tlGeojson.features.length * 2 + 1;
+	var endPointId = startPointId + 1;
+	graph.addEdge(startPointId,endPointId,config.from.dist(config.to));
+	var queryResults = [];
+	quadTree.queryRange(new AABB(new GamePoint(config.from.x - halfsize,config.from.y - halfsize),size),queryResults);
+	var _g = 0;
+	var _g1 = queryResults.length;
+	while(_g < _g1) {
+		var i = _g++;
+		graph.addEdge(startPointId,queryResults[i].id,config.from.dist(queryResults[i].point));
+	}
+	queryResults = [];
+	quadTree.queryRange(new AABB(new GamePoint(config.to.x - halfsize,config.to.y - halfsize),size),queryResults);
+	var _g = 0;
+	var _g1 = queryResults.length;
+	while(_g < _g1) {
+		var i = _g++;
+		graph.addEdge(endPointId,queryResults[i].id,config.to.dist(queryResults[i].point));
+	}
+	return graph;
+}
 Math.__name__ = true;
+var Point = function(x,y,z) {
+	this.x = x;
+	this.y = y;
+	this.z = z;
+};
+Point.__name__ = true;
+Point.prototype = {
+	create: function(x,y,z) {
+		return new Point(x,y,z);
+	}
+	,toString: function() {
+		return "Point[" + this.x + ", " + this.y + "]";
+	}
+	,dist: function(other) {
+		var squared = Math.pow(this.x - other.x,2) + Math.pow(this.y - other.y,2);
+		return Math.pow(squared,0.5);
+	}
+};
+var MapPoint = function(x,y,z) {
+	Point.call(this,x,y,z);
+};
+MapPoint.__name__ = true;
+MapPoint.__super__ = Point;
+MapPoint.prototype = $extend(Point.prototype,{
+	toGamePoint: function() {
+		return new GamePoint(this.x,-this.y,this.z);
+	}
+	,create: function(x,y,z) {
+		return new MapPoint(x,y,z);
+	}
+});
+var GamePoint = function(x,y,z) {
+	Point.call(this,x,y,z);
+};
+GamePoint.__name__ = true;
+GamePoint.__super__ = Point;
+GamePoint.prototype = $extend(Point.prototype,{
+	toMapPoint: function() {
+		return new MapPoint(this.x,-this.y,this.z);
+	}
+	,create: function(x,y,z) {
+		return new GamePoint(x,y,z);
+	}
+});
+var AABB = function(start,size) {
+	this.start = start;
+	this.end = new Point(start.x + size,start.y + size);
+	this.size = size;
+	this.center = new Point(Math.floor((start.x + this.end.x) / 2),Math.floor((start.y + this.end.y) / 2));
+};
+AABB.__name__ = true;
+AABB.prototype = {
+	containsPoint: function(point) {
+		if(point.x >= this.start.x && point.x < this.end.x && point.y >= this.start.y) {
+			return point.y < this.end.y;
+		} else {
+			return false;
+		}
+	}
+	,intersectsAABB: function(other) {
+		if(this.start.x <= other.end.x && this.end.x >= other.start.x && this.start.y <= other.end.y) {
+			return this.end.y >= other.start.y;
+		} else {
+			return false;
+		}
+	}
+	,toString: function() {
+		return "AABB[" + this.start.x + ", " + this.start.y + ", " + this.end.x + ", " + this.end.y + "]";
+	}
+};
+var QuadTree = function(boundary,nodeCapacity) {
+	this.subtrees = null;
+	this.ids = [];
+	this.points = [];
+	this.boundary = boundary;
+	this.nodeCapacity = nodeCapacity;
+};
+QuadTree.__name__ = true;
+QuadTree.prototype = {
+	subdivide: function() {
+		var topCenter = this.boundary.center.create(this.boundary.center.x,this.boundary.start.y);
+		var leftCenter = this.boundary.center.create(this.boundary.start.x,this.boundary.center.y);
+		var halfSize = Math.floor(this.boundary.size / 2);
+		return { NW : new QuadTree(new AABB(this.boundary.start,halfSize),this.nodeCapacity), NE : new QuadTree(new AABB(topCenter,halfSize),this.nodeCapacity), SW : new QuadTree(new AABB(leftCenter,halfSize),this.nodeCapacity), SE : new QuadTree(new AABB(this.boundary.center,halfSize),this.nodeCapacity)};
+	}
+	,getNodeCount: function() {
+		var tmp = this.points.length;
+		var tmp1;
+		if(this.subtrees != null) {
+			var tmp2 = this.subtrees;
+			var tmp3 = tmp2 != null ? tmp2.NE.getNodeCount() : null;
+			var tmp2 = this.subtrees;
+			var tmp4 = tmp2 != null ? tmp2.NW.getNodeCount() : null;
+			var tmp2 = this.subtrees;
+			var tmp5 = tmp2 != null ? tmp2.SE.getNodeCount() : null;
+			var tmp2 = this.subtrees;
+			tmp1 = tmp3 + tmp4 + tmp5 + (tmp2 != null ? tmp2.SW.getNodeCount() : null);
+		} else {
+			tmp1 = 0;
+		}
+		return tmp + tmp1;
+	}
+	,insert: function(p,id) {
+		if(!this.boundary.containsPoint(p)) {
+			return false;
+		}
+		if(this.points.length < this.nodeCapacity && this.subtrees == null) {
+			this.points.push(p);
+			this.ids.push(id);
+			return true;
+		}
+		if(this.subtrees == null) {
+			this.subtrees = this.subdivide();
+			var _g = 0;
+			var _g1 = this.points.length;
+			while(_g < _g1) {
+				var i = _g++;
+				var pt = this.points[i];
+				var ptId = this.ids[i];
+				if(!(this.subtrees.NW.insert(pt,ptId) || this.subtrees.NE.insert(pt,ptId) || this.subtrees.SW.insert(pt,ptId) || this.subtrees.SE.insert(pt,ptId))) {
+					haxe_Log.trace("Couldn't insert point",{ fileName : "src/QuadTree.hx", lineNumber : 155, className : "QuadTree", methodName : "insert"});
+				}
+			}
+			this.points = [];
+			this.ids = [];
+		}
+		var _ok = this.subtrees.NW.insert(p,id) || this.subtrees.NE.insert(p,id) || this.subtrees.SW.insert(p,id) || this.subtrees.SE.insert(p,id);
+		return true;
+	}
+	,queryRange: function(range,result) {
+		if(!this.boundary.intersectsAABB(range)) {
+			return;
+		}
+		if(this.subtrees == null) {
+			var _g = 0;
+			var _g1 = this.points.length;
+			while(_g < _g1) {
+				var i = _g++;
+				var pt = this.points[i];
+				var id = this.ids[i];
+				if(range.containsPoint(pt)) {
+					result.push({ point : pt, id : id});
+				}
+			}
+			return;
+		}
+		this.subtrees.NW.queryRange(range,result);
+		this.subtrees.NE.queryRange(range,result);
+		this.subtrees.SW.queryRange(range,result);
+		this.subtrees.SE.queryRange(range,result);
+	}
+	,toString: function() {
+		var sb = [];
+		var treeStack = [];
+		treeStack.push({ tree : this, indent : 0});
+		while(treeStack.length > 0) {
+			var cur = treeStack.pop();
+			var indent = StringTools.rpad("","-",cur.indent);
+			sb.push("" + indent + "Tree " + cur.tree.boundary.toString());
+			var _g = 0;
+			var _g1 = cur.tree.points;
+			while(_g < _g1.length) {
+				var pt = _g1[_g];
+				++_g;
+				sb.push("" + indent + ">Point[" + pt.x + ", " + pt.y + "]");
+			}
+			if(cur.tree.subtrees != null) {
+				treeStack.push({ tree : cur.tree.subtrees.SE, indent : cur.indent + 1});
+				treeStack.push({ tree : cur.tree.subtrees.SW, indent : cur.indent + 1});
+				treeStack.push({ tree : cur.tree.subtrees.NE, indent : cur.indent + 1});
+				treeStack.push({ tree : cur.tree.subtrees.NW, indent : cur.indent + 1});
+			}
+		}
+		return sb.join("\n");
+	}
+};
 var Std = function() { };
 Std.__name__ = true;
 Std.string = function(s) {
 	return js_Boot.__string_rec(s,"");
+};
+var StringTools = function() { };
+StringTools.__name__ = true;
+StringTools.rpad = function(s,c,l) {
+	if(c.length <= 0) {
+		return s;
+	}
+	var buf_b = "";
+	buf_b += s == null ? "null" : "" + s;
+	while(buf_b.length < l) buf_b += c == null ? "null" : "" + c;
+	return buf_b;
 };
 var haxe_io_Output = function() { };
 haxe_io_Output.__name__ = true;
@@ -185,6 +440,31 @@ haxe_Exception.prototype = $extend(Error.prototype,{
 		return this.__nativeException;
 	}
 });
+var haxe_Log = function() { };
+haxe_Log.__name__ = true;
+haxe_Log.formatOutput = function(v,infos) {
+	var str = Std.string(v);
+	if(infos == null) {
+		return str;
+	}
+	var pstr = infos.fileName + ":" + infos.lineNumber;
+	if(infos.customParams != null) {
+		var _g = 0;
+		var _g1 = infos.customParams;
+		while(_g < _g1.length) {
+			var v = _g1[_g];
+			++_g;
+			str += ", " + Std.string(v);
+		}
+	}
+	return pstr + ": " + str;
+};
+haxe_Log.trace = function(v,infos) {
+	var str = haxe_Log.formatOutput(v,infos);
+	if(typeof(console) != "undefined" && console.log != null) {
+		console.log(str);
+	}
+};
 var haxe_ValueException = function(value,previous,native) {
 	haxe_Exception.call(this,String(value),previous,native);
 	this.value = value;
